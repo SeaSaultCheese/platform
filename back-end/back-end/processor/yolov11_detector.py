@@ -1,10 +1,10 @@
 # processor/yolov11_detector.py
 import cv2
 import numpy as np
-from ultralytics import YOLO
+from ultralytics import YOLO, FastSAM
 import torch
 import os
-from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
+import time
 
 
 class YOLOv11Detector:
@@ -17,8 +17,11 @@ class YOLOv11Detector:
         self.model = YOLO(model_path)
         self.classes = ['scratches']
 
+        self.DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.segmentation_model = FastSAM("FastSAM-x.pt")
+
     def order_points(self, pts):
-        '''Rearrange coordinates to order:
+        '''Rearrange coordinates to order: 
         top-left, top-right, bottom-right, bottom-left'''
         rect = np.zeros((4, 2), dtype='float32')
         pts = np.array(pts)
@@ -27,7 +30,7 @@ class YOLOv11Detector:
         rect[0] = pts[np.argmin(s)]
         # Bottom-right point will have the largest sum.
         rect[2] = pts[np.argmax(s)]
-
+        
         diff = np.diff(pts, axis=1)
         # Top-right point will have the smallest difference.
         rect[1] = pts[np.argmin(diff)]
@@ -38,88 +41,92 @@ class YOLOv11Detector:
 
     def preprocess_image(self, image_bgr):
 
-        DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # print(torch.cuda.is_available(), DEVICE)
-        MODEL_TYPE = "vit_h"
-
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        CHECKPOINT_PATH = os.path.join(script_dir, 'sam_vit_h_4b8939.pth')
-
-        sam = sam_model_registry[MODEL_TYPE](checkpoint=CHECKPOINT_PATH).to(device=DEVICE)
-        mask_generator = SamAutomaticMaskGenerator(sam, points_per_side=1)
-
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-        sam_result = mask_generator.generate(image_rgb)
+    # Run FastSAM inference
+        results = self.segmentation_model(image_rgb, device=self.DEVICE, retina_masks=True, imgsz=1024, conf=0.5, iou=0.7)
 
-        segmentation_mask = sam_result[0]['segmentation']
+        # Check if results contain masks
+        if not results or not hasattr(results[0], 'masks') or results[0].masks is None:
+            raise ValueError("FastSAM returned no valid masks")
 
-        # Convert the segmentation mask to a binary mask
-        binary_mask = np.where(segmentation_mask == True, 1, 0)
-        black_background = np.ones_like(image_bgr) * 0
+        # Select the largest mask by area
+        masks = results[0].masks.data.cpu().numpy()  # Shape: (num_masks, height, width)
+        areas = [np.sum(mask) for mask in masks]
+        largest_mask_idx = np.argmax(areas)
+        segmentation_mask = masks[largest_mask_idx]  # Binary mask (height, width)
 
-        # Apply the binary mask
+        # Convert mask to binary (0 or 1)
+        binary_mask = np.where(segmentation_mask > 0, 1, 0).astype(np.uint8)
+        black_background = np.zeros_like(image_bgr)
+
+        # Apply the binary mask to remove background
         new_image = np.where(binary_mask[..., np.newaxis] == 1, image_bgr, black_background)
-
-        # Making Copy of original image.
+        
+        # Make a copy of the masked image
         orig_img = new_image.copy()
 
-        # Create the sharpening kernel
+        # Sharpen the image
         kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-
         for _ in range(3):
-            # Sharpen the image
             new_image = cv2.filter2D(new_image, -1, kernel)
 
+        # Morphological closing
         kernel = np.ones((5, 5), np.uint8)
         new_image = cv2.morphologyEx(new_image, cv2.MORPH_CLOSE, kernel, iterations=3)
 
+        # Gaussian blur
         new_image = cv2.GaussianBlur(new_image, (11, 11), 0)
-        # Edge Detection.
+
+        # Edge detection
         canny = cv2.Canny(new_image, 100, 200)
         canny = cv2.dilate(canny, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
 
-        # Finding contours for the detected edges.
-        contours, hierarchy = cv2.findContours(canny, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-        # Keeping only the largest detected contour.
+        # Find contours
+        contours, _ = cv2.findContours(canny, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+        if not contours:
+            raise ValueError("No contours found for perspective transform")
+        
+        # Select the largest contour
         page = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
 
-        # Loop over the contours.
+        # Find quadrilateral contour
+        corners = None
         for c in page:
-            # Approximate the contour.
             epsilon = 0.02 * cv2.arcLength(c, True)
-            corners = cv2.approxPolyDP(c, epsilon, True)
-            # If our approximated contour has four points
-            if len(corners) == 4:
+            approx = cv2.approxPolyDP(c, epsilon, True)
+            if len(approx) == 4:
+                corners = approx
                 break
-        # Sorting the corners and converting them to desired shape.
-        corners = sorted(np.concatenate(corners).tolist())
+        
+        if corners is None:
+            raise ValueError("No quadrilateral contour found")
 
-        # Rearranging the order of the corner points.
+        # Sort and order corners
+        corners = np.concatenate(corners).tolist()
         corners = self.order_points(corners)
-
         (tl, tr, br, bl) = corners
-        # Finding the maximum width.
+
+        # Calculate dimensions for perspective transform
         widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
         widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
         maxWidth = max(int(widthA), int(widthB))
 
-        # Finding the maximum height.
         heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
         heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
         maxHeight = max(int(heightA), int(heightB))
-        # Final destination co-ordinates.
+
+        # Define destination corners
         destination_corners = [
             [0, 0],
             [maxWidth, 0],
             [maxWidth, maxHeight],
-            [0, maxHeight]]
+            [0, maxHeight]
+        ]
 
-        # Getting the homography.
+        # Apply perspective transform
         homography = cv2.getPerspectiveTransform(np.float32(corners), np.float32(destination_corners))
-        # Perspective transform using homography.
         final = cv2.warpPerspective(orig_img, np.float32(homography), (maxWidth, maxHeight), flags=cv2.INTER_LINEAR)
-
         # save results
         return final
 
@@ -149,9 +156,9 @@ class YOLOv11Detector:
                     tiles.append(tile)
                     coordinates.append((x, y, x_end - x, y_end - y))  # Store (x, y, w, h)
                     tile_idx += 1
-
+        
         return tiles, coordinates
-
+    
     def merge_detections(self, detections, coordinates, image_shape, iou_threshold=0.3, conf_threshold=0.3):
         """Merge YOLO detections from tiles using NMS."""
         all_boxes = []
@@ -167,23 +174,25 @@ class YOLOv11Detector:
                 x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
                 score = det.conf[0].item()
                 cls = int(det.cls[0].cpu().numpy())
-
+                
                 # Map coordinates back to original image
                 x1 = x1 + x_offset
                 y1 = y1 + y_offset
                 x2 = x2 + x_offset
                 y2 = y2 + y_offset
-
+                
                 # Clip to image boundaries
                 x1 = max(0, min(x1, image_shape[1]))
                 x2 = max(0, min(x2, image_shape[1]))
                 y1 = max(0, min(y1, image_shape[0]))
                 y2 = max(0, min(y2, image_shape[0]))
-
+                
                 if score >= conf_threshold:
                     all_boxes.append([x1, y1, x2, y2])
                     all_scores.append(score)
                     all_classes.append(cls)
+
+
 
         # Apply NMS to merged detections
         if all_boxes and all_scores:
@@ -199,6 +208,7 @@ class YOLOv11Detector:
         else:
             print("No valid detections to merge")
             return np.array([]), np.array([]), np.array([])
+        
 
     def detect(self, image, conf_threshold=0.25, overlap=0.3):
         """
@@ -216,16 +226,13 @@ class YOLOv11Detector:
         # Run YOLO on each tile
         detections = []
         for tile in tiles:
-            if torch.cuda.is_available():
-                results = self.model.predict(tile, device="0", conf=conf_threshold)
-            else:
-                results = self.model.predict(tile, device="cpu", conf=conf_threshold)
+            results = self.model.predict(tile, device=self.DEVICE, conf=conf_threshold)
             detections.append(results[0] if results else None)
 
         # Merge detections
-        boxes, scores, classes = self.merge_detections(detections, coordinates, image.shape, iou_threshold=0.4,
-                                                       conf_threshold=0.3)
-
+        boxes, scores, classes = self.merge_detections(detections, coordinates, image.shape, iou_threshold=0.4, conf_threshold=0.3)
+        
+        
         # 构建检测结果
         detections = []
 
@@ -244,6 +251,7 @@ class YOLOv11Detector:
             })
 
         return detections
+
 
     def visualize(self, image, detections):
         # """
@@ -283,11 +291,7 @@ class YOLOv11Detector:
         """
 
         image = self.preprocess_image(image)  # Remove background using SAM
-
-        # 执行检测
         detections = self.detect(image, conf_threshold)
-
-        # 可视化结果
         annotated_image = self.visualize(image, detections)
 
         return detections, annotated_image
