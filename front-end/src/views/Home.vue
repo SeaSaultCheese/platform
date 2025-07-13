@@ -186,7 +186,80 @@ export default {
       }
     }
   },
+  mounted() {
+    this.startSSE()
+  },
+  beforeDestroy() {
+    this.stopSSE()
+  },
   methods: {
+    startSSE() {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        console.error('No token found in localStorage')
+        this.$message.error('未登录，请先登录')
+        this.$router.push('/login')
+        return
+      }
+      this.eventSource = new EventSource(`${this.server_url}/stream?token=${encodeURIComponent(token)}`)
+
+      this.eventSource.onopen = () => {
+        console.log('Connected to SSE stream')
+        this.$message.success('已连接到实时更新服务')
+      },
+      this.eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        if (data.status === 1 && data.image_url !== this.lastImagePath) {
+          this.lastImagePath = data.image_url
+          this.originalImage = data.image_url
+          this.originalImageList = [data.image_url]
+          this.detectedImage = data.draw_url
+          this.detectedImageList = [data.draw_url]
+          this.feature_list = data.defect_detection && data.defect_detection.detections || []
+          this.loading = false
+          this.showUploadButton = false
+          this.waitMessage = ''
+          this.percentage = 0
+          this.dialogTableVisible = false
+
+          this.$notify({
+            title: '新图像已接收',
+            message: '点击图片可以查看大图',
+            duration: 0,
+            type: 'success'
+          })
+        }
+      }
+
+      this.eventSource.onerror = async (error) => {
+        console.error('SSE error:', error)
+        try {
+          const response = await fetch(sseUrl)
+          console.error('SSE connection status:', response.status, response.statusText)
+          if (response.status === 404) {
+            this.$message.error('SSE endpoint not found (404). Check server configuration.')
+          } else if (response.status === 401) {
+            this.$message.error('Invalid or expired token. Please log in again.')
+            this.$router.push('/login')
+          } else {
+            this.$message.error(`SSE connection failed: ${response.statusText}`)
+          }
+        } catch (fetchError) {
+          console.error('Fetch error during SSE check:', fetchError)
+          this.$message.error('无法连接到实时更新服务')
+        }
+        this.eventSource.close()
+        setTimeout(() => this.startSSE(), 5000)
+      }
+    },
+    stopSSE() {
+      if (this.eventSource) {
+        this.eventSource.close()
+        this.eventSource = null
+        console.log('Disconnected from SSE stream')
+      }
+    },
+
     goToProfile() {
       this.$router.push('/profile')
     },

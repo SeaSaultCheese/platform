@@ -4,13 +4,15 @@ import os
 import shutil
 from datetime import timedelta
 from flask import *
+from queue import Queue
+from threading import Lock
 from processor.AIDetector_pytorch import Detector
 from models.user import User
-from utils.auth import generate_token, token_required
+from utils.auth import generate_token, token_required, verify_token
 import core.main
-# from defect_detection.detect import DefectDetector
 import cv2
-from processor.yolov8_detector import YOLOv8Detector
+# from processor.yolov8_detector import YOLOv8Detector
+from processor.yolov11_detector import YOLOv11Detector
 
 UPLOAD_FOLDER = r'./uploads'
 
@@ -18,6 +20,10 @@ ALLOWED_EXTENSIONS = set(['png', 'jpg', 'jpeg'])
 app = Flask(__name__)
 app.secret_key = 'secret!'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Store SSE clients
+sse_clients = []
+sse_lock = Lock()
 
 werkzeug_logger = rel_log.getLogger('werkzeug')
 werkzeug_logger.setLevel(rel_log.ERROR)
@@ -28,7 +34,7 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(seconds=1)
 # 初始化缺陷检测器
 # defect_detector = DefectDetector('defect_detection/defect_model/defect_detector/weights/best.pt')
 # defect_detector = Detector()
-defect_detector = YOLOv8Detector('dataset/runs/detect/neu_defect_yolov84/weights/best.pt')
+defect_detector = YOLOv11Detector('weights/best.pt')
 # 添加header解决跨域
 @app.after_request
 def after_request(response):
@@ -41,6 +47,39 @@ def after_request(response):
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1] in ALLOWED_EXTENSIONS
+
+@app.route('/stream')
+def stream():
+    token = request.args.get('token')
+    print(f"SSE connect attempt - Token: {token}, Remote: {request.remote_addr}")
+    if token:
+        try:
+            user_id = verify_token(token)
+            if not user_id:
+                print(f"SSE connection rejected: Invalid token, Remote: {request.remote_addr}")
+                return jsonify({'status': 0, 'message': 'Invalid token'}), 401
+            print(f"SSE client connected: user_id={user_id}, Remote: {request.remote_addr}")
+        except Exception as e:
+            print(f"Token verification failed: {str(e)}, Remote: {request.remote_addr}")
+            return jsonify({'status': 0, 'message': 'Token verification failed'}), 401
+    else:
+        print(f"SSE connection rejected: Missing token, Remote: {request.remote_addr}")
+        return jsonify({'status': 0, 'message': 'Missing token'}), 401
+
+    def generate():
+        with sse_lock:
+            client_queue = Queue()
+            sse_clients.append(client_queue)
+        try:
+            while True:
+                event = client_queue.get()
+                yield f"data: {json.dumps(event)}\n\n"
+        except GeneratorExit:
+            with sse_lock:
+                sse_clients.remove(client_queue)
+                print(f"SSE client disconnected: Remote: {request.remote_addr}")
+
+    return Response(generate(), mimetype='text/event-stream')
 
 
 @app.route('/')
@@ -127,10 +166,7 @@ def upload_file(current_user_id):
             # cv2.waitKey(0)
             # cv2.destroyAllWindows()
 
-
-            print("Detections:", detections)
-
-            return jsonify({
+            response = {
                 'status': 1,
                 'image_url': f'http://127.0.0.1:5003/tmp/ct/{filename}',
                 'draw_url': f'http://127.0.0.1:5003/tmp/draw/{filename}',
@@ -140,7 +176,14 @@ def upload_file(current_user_id):
                     'total_defects': len(detections),
                     'defect_types': list(set(d['class'] for d in detections))
                 }
-            })
+            }
+
+            # Send to SSE clients
+            with sse_lock:
+                for client_queue in sse_clients:
+                    client_queue.put(response)
+            print(f"Sent SSE event for file: {filename}")
+            return jsonify(response)
 
         except Exception as e:
             print(f"Defect detection error: {str(e)}")

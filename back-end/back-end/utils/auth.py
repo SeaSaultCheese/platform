@@ -25,3 +25,13 @@ def token_required(f):
             return jsonify({'message': 'Token is invalid!'}), 401
         return f(current_user_id, *args, **kwargs)
     return decorated 
+
+def verify_token(token):
+    """Verify a JWT token and return the user_id if valid, else None."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+        return payload['user_id']
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
