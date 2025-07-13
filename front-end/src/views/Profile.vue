@@ -2,16 +2,16 @@
   <div class="profile-container">
     <el-card class="profile-card">
       <div slot="header" class="clearfix">
-        <span>个人主页</span>
-        <el-button style="float: right; padding: 3px 0" type="text" @click="goToHome">返回检测页</el-button>
+        <span>Personal profile</span>
+        <el-button style="float: right; padding: 3px 0" type="text" @click="goToHome">Back to detect</el-button>
       </div>
       <div class="profile-content">
         <el-avatar :size="100" :src="userAvatar"></el-avatar>
         <h2>{{ userInfo.username }}</h2>
-        <p>邮箱：{{ userInfo.email }}</p>
-        <p>注册时间：{{ formatDate(userInfo.created_at) }}</p>
-        <el-button type="primary" @click="goToHome">返回检测页</el-button>
-        <el-button type="danger" @click="logout">退出登录</el-button>
+        <p>Email：{{ userInfo.email }}</p>
+        <p>Registration Time：{{ formatDate(userInfo.created_at) }}</p>
+        <el-button type="primary" @click="goToHome">Back to detect</el-button>
+        <el-button type="danger" @click="logout">Log out</el-button>
       </div>
     </el-card>
   </div>
@@ -55,11 +55,11 @@ export default {
         if (response.data.status === 1) {
           this.userInfo = response.data.user
         } else {
-          this.$message.error(response.data.message || '获取用户信息失败')
+          this.$message.error(response.data.message || 'Failed to get user information')
         }
       } catch (error) {
         console.error('Get user info error:', error)
-        this.$message.error('获取用户信息失败')
+        this.$message.error('Failed to get user information')
       }
     },
     formatDate(dateString) {
