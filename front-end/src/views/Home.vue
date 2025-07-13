@@ -196,7 +196,6 @@ export default {
     startSSE() {
       const token = localStorage.getItem('token')
       if (!token) {
-        console.error('No token found in localStorage')
         this.$message.error('未登录，请先登录')
         this.$router.push('/login')
         return
@@ -204,7 +203,6 @@ export default {
       this.eventSource = new EventSource(`${this.server_url}/stream?token=${encodeURIComponent(token)}`)
 
       this.eventSource.onopen = () => {
-        console.log('Connected to SSE stream')
         this.$message.success('已连接到实时更新服务')
       },
       this.eventSource.onmessage = (event) => {
@@ -232,10 +230,8 @@ export default {
       }
 
       this.eventSource.onerror = async (error) => {
-        console.error('SSE error:', error)
         try {
           const response = await fetch(sseUrl)
-          console.error('SSE connection status:', response.status, response.statusText)
           if (response.status === 404) {
             this.$message.error('SSE endpoint not found (404). Check server configuration.')
           } else if (response.status === 401) {
@@ -245,7 +241,6 @@ export default {
             this.$message.error(`SSE connection failed: ${response.statusText}`)
           }
         } catch (fetchError) {
-          console.error('Fetch error during SSE check:', fetchError)
           this.$message.error('无法连接到实时更新服务')
         }
         this.eventSource.close()
@@ -256,7 +251,6 @@ export default {
       if (this.eventSource) {
         this.eventSource.close()
         this.eventSource = null
-        console.log('Disconnected from SSE stream')
       }
     },
 
