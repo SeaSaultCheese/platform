@@ -4,13 +4,19 @@ import os
 import shutil
 from datetime import timedelta
 from flask import *
+from queue import Queue
+from threading import Lock
 from processor.AIDetector_pytorch import Detector
 from models.user import User
-from utils.auth import generate_token, token_required
+from processor.fastsam_detector import FastSamDetector
+from utils.auth import generate_token, token_required, verify_token
 import core.main
-# from defect_detection.detect import DefectDetector
 import cv2
-from processor.yolov8_detector import YOLOv8Detector
+# from processor.yolov8_detector import YOLOv8Detector
+from processor.yolov11_detector import YOLOv11Detector
+from models.record import Record
+import time
+
 
 UPLOAD_FOLDER = r'./uploads'
 
@@ -18,6 +24,10 @@ ALLOWED_EXTENSIONS = set(['png', 'jpg', 'jpeg'])
 app = Flask(__name__)
 app.secret_key = 'secret!'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Store SSE clients
+sse_clients = []
+sse_lock = Lock()
 
 werkzeug_logger = rel_log.getLogger('werkzeug')
 werkzeug_logger.setLevel(rel_log.ERROR)
@@ -28,7 +38,9 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(seconds=1)
 # 初始化缺陷检测器
 # defect_detector = DefectDetector('defect_detection/defect_model/defect_detector/weights/best.pt')
 # defect_detector = Detector()
-defect_detector = YOLOv8Detector('dataset/runs/detect/neu_defect_yolov84/weights/best.pt')
+yolov11_detector = YOLOv11Detector('weights/best.pt')
+fastsam_detector = FastSamDetector('FastSAM-x.pt')
+
 # 添加header解决跨域
 @app.after_request
 def after_request(response):
@@ -41,6 +53,39 @@ def after_request(response):
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1] in ALLOWED_EXTENSIONS
+
+@app.route('/stream')
+def stream():
+    token = request.args.get('token')
+    print(f"SSE connect attempt - Token: {token}, Remote: {request.remote_addr}")
+    if token:
+        try:
+            user_id = verify_token(token)
+            if not user_id:
+                print(f"SSE connection rejected: Invalid token, Remote: {request.remote_addr}")
+                return jsonify({'status': 0, 'message': 'Invalid token'}), 401
+            print(f"SSE client connected: user_id={user_id}, Remote: {request.remote_addr}")
+        except Exception as e:
+            print(f"Token verification failed: {str(e)}, Remote: {request.remote_addr}")
+            return jsonify({'status': 0, 'message': 'Token verification failed'}), 401
+    else:
+        print(f"SSE connection rejected: Missing token, Remote: {request.remote_addr}")
+        return jsonify({'status': 0, 'message': 'Missing token'}), 401
+
+    def generate():
+        with sse_lock:
+            client_queue = Queue()
+            sse_clients.append(client_queue)
+        try:
+            while True:
+                event = client_queue.get()
+                yield f"data: {json.dumps(event)}\n\n"
+        except GeneratorExit:
+            with sse_lock:
+                sse_clients.remove(client_queue)
+                print(f"SSE client disconnected: Remote: {request.remote_addr}")
+
+    return Response(generate(), mimetype='text/event-stream')
 
 
 @app.route('/')
@@ -102,7 +147,8 @@ def login():
 @token_required
 def upload_file(current_user_id):
     file = request.files['file']
-    print(datetime.datetime.now(), file.filename)
+    model_version = request.form.get('version', 'YOLOv11')
+    print(datetime.datetime.now(), file.filename, "using model version:", model_version)
     if file and allowed_file(file.filename):
         filename = file.filename
         src_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -112,14 +158,20 @@ def upload_file(current_user_id):
         tmp_ct_path = os.path.join('./tmp/ct', filename)
         shutil.copy(src_path, tmp_ct_path)
 
+        original_url = f'http://127.0.0.1:5003/tmp/ct/{filename}'
+        timestamp = int(time.time())
+        detected_url = f'http://127.0.0.1:5003/tmp/draw/{filename}?t={timestamp}'
         # 执行缺陷检测
         try:
             img = cv2.imread(tmp_ct_path)
             # 使用process_image方法，它会返回检测结果和标注后的图像
-            detections, annotated_image = defect_detector.process_image(img)
+            # detections, annotated_image = yolov11_detector.process_image(img)
 
-            pid, image_info = core.main.c_main(tmp_ct_path, current_app.model, filename.rsplit('.', 1)[1])
-
+            # pid, image_info = core.main.c_main(tmp_ct_path, current_app.model, filename.rsplit('.', 1)[1])
+            if model_version == 'FASTSAM':
+                detections, annotated_image = fastsam_detector.process_image(img)
+            else:
+                detections, annotated_image = yolov11_detector.process_image(img)
             # 保存带注释的图像
             draw_path = os.path.join('./tmp/draw', filename)
             cv2.imwrite(draw_path, annotated_image)
@@ -127,20 +179,38 @@ def upload_file(current_user_id):
             # cv2.waitKey(0)
             # cv2.destroyAllWindows()
 
+            record_model = Record()
+            total_defects = len(detections)
+            defect_types = list(set(d['class'] for d in detections))
 
-            print("Detections:", detections)
+            record_model.insert_record(
+                current_user_id,
+                original_url,
+                detected_url,
+                detections,
+                total_defects,
+                defect_types,
+                datetime.datetime.now(),
+                model_version
+            )
 
-            return jsonify({
+            response = {
                 'status': 1,
-                'image_url': f'http://127.0.0.1:5003/tmp/ct/{filename}',
-                'draw_url': f'http://127.0.0.1:5003/tmp/draw/{filename}',
-                'image_info': image_info,
+                'image_url': original_url,
+                'draw_url': detected_url,
                 'defect_detection': {
                     'detections': detections,
-                    'total_defects': len(detections),
-                    'defect_types': list(set(d['class'] for d in detections))
+                    'total_defects': total_defects,
+                    'defect_types': defect_types
                 }
-            })
+            }
+
+            # Send to SSE clients
+            with sse_lock:
+                for client_queue in sse_clients:
+                    client_queue.put(response)
+            print(f"Sent SSE event for file: {filename}")
+            return jsonify(response)
 
         except Exception as e:
             print(f"Defect detection error: {str(e)}")
@@ -211,9 +281,49 @@ def get_user_info(current_user_id):
     except Exception as e:
         return jsonify({'status': 0, 'message': str(e)}), 500
 
+@app.route('/api/history', methods=['GET'])
+@token_required
+def get_history(current_user_id):
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 10))
+
+        record_model = Record()
+        records, total = record_model.get_records_by_user_paginated(current_user_id, page, per_page)
+
+        return jsonify({
+            'status': 1,
+            'records': records,
+            'pagination': {
+                'total': total,
+                'page': page,
+                'per_page': per_page,
+                'total_pages': (total + per_page - 1) // per_page  # 向上取整
+            }
+        })
+    except Exception as e:
+        return jsonify({'status': 0, 'message': str(e)}), 500
+
+
+@app.route('/api/history/delete', methods=['POST'])
+@token_required
+def delete_history_record(current_user_id):
+    try:
+        data = request.get_json()
+        record_id = data.get('record_id')
+
+        record_model = Record()
+        success = record_model.delete_record(record_id, current_user_id)
+
+        if success:
+            return jsonify({'status': 1, 'message': 'Record deleted'})
+        else:
+            return jsonify({'status': 0, 'message': 'Record not found or not authorized'})
+    except Exception as e:
+        return jsonify({'status': 0, 'message': str(e)}), 500
 
 if __name__ == '__main__':
-    with app.app_context():
-        current_app.model = Detector()
+    # with app.app_context():
+    #     current_app.model = Detector()
     app.run(host='127.0.0.1', port=5003, debug=True)
 

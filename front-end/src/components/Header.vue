@@ -19,7 +19,7 @@ export default {
   name: "Header",
   data() {
     return {
-      msg: "YOLOv11 detection system",
+      msg: "YOLOv8 detection system",
       activeIndex: "1",
     };
   },

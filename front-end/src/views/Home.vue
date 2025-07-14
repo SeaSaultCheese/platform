@@ -5,15 +5,22 @@
         <div class="header-content">
           <h2>Detection Home</h2>
           <div class="header-right">
-            <el-button type="text" @click="goToProfile">个人主页</el-button>
-            <el-button type="text" @click="logout">退出登录</el-button>
+            <el-button type="text" @click="goToProfile">Profile</el-button>
+            <el-button type="text" @click="logout">Log out</el-button>
           </div>
         </div>
       </el-header>
+
+      <el-aside width="200px">
+        <el-menu :default-active="$route.path" @select="handleMenu">
+          <el-menu-item index="/home">Defect Detection</el-menu-item>
+          <el-menu-item index="/history">Detection Record</el-menu-item>
+        </el-menu>
+      </el-aside>
       
       <el-main>
         <el-dialog
-          title="预测中"
+          title="Detecting"
           :visible.sync="dialogTableVisible"
           :show-close="false"
           :close-on-press-escape="false"
@@ -22,15 +29,25 @@
           :center="true"
         >
           <el-progress :percentage="percentage"></el-progress>
-          <span slot="footer" class="dialog-footer">请耐心等待</span>
+          <span slot="footer" class="dialog-footer">Please wait</span>
         </el-dialog>
-
+        <div class="model-select-wrapper">
+          <label class="model-select-label">Model Selection:</label>
+          <el-select v-model="selectedModel" placeholder="Select Model">
+            <el-option label="FASTSAM" value="FASTSAM"></el-option>
+            <el-option label="YOLOv11" value="YOLOv11"></el-option>
+          </el-select>
+        </div>
         <div class="detection-container">
+          <!-- <el-select v-model="selectedModel" placeholder="Select Model" style="width: 200px; margin-bottom: 20px;">
+            <el-option label="YOLOv8" value="YOLOv8"></el-option>
+            <el-option label="YOLOv11" value="YOLOv11"></el-option>
+          </el-select> -->
           <div class="image-section">
             <el-card class="image-card">
               <div class="image-row"> 
               <div class="image-preview">
-                <div v-loading="loading" element-loading-text="上传图片中" element-loading-spinner="el-icon-loading">
+                <div v-loading="loading" element-loading-text="Uploading" element-loading-spinner="el-icon-loading">
                   <el-image
                     :src="originalImage"
                     class="preview-image"
@@ -45,7 +62,7 @@
                           class="upload-button"
                           @click="triggerUpload"
                         >
-                          上传图像
+                          Upload image
                           <input
                             ref="upload"
                             style="display: none"
@@ -59,12 +76,12 @@
                   </el-image>
                 </div>
                 <div class="image-info">
-                  <span>原始图像</span>
+                  <span>Original Image</span>
                 </div>
               </div>
 
               <div class="image-preview">
-                <div v-loading="loading" element-loading-text="处理中,请耐心等待" element-loading-spinner="el-icon-loading">
+                <div v-loading="loading" element-loading-text="Processing" element-loading-spinner="el-icon-loading">
                   <el-image
                     :src="detectedImage"
                     class="preview-image"
@@ -76,7 +93,7 @@
                   </el-image>
                 </div>
                 <div class="image-info">
-                  <span>检测结果</span>
+                  <span>Dectecion Result</span>
                 </div>
               </div>
               </div>
@@ -86,7 +103,7 @@
           <div class="result-section">
             <el-card>
               <div slot="header" class="clearfix">
-                <span>检测目标</span>
+                <span>Defect list</span>
                 
                 <el-button
                   style="margin-left: 35px"
@@ -95,7 +112,7 @@
                   icon="el-icon-upload"
                   class="upload-button"
                   @click="triggerUpload"
-                >重新选择图像
+                >Reupload
                 
                   <input
                     ref="upload2"
@@ -110,7 +127,7 @@
                   type="success"
                   @click="calculateStats"
                 >
-                  统计
+                  Count
                 </el-button>
               </div>
               <el-table
@@ -121,9 +138,9 @@
                 stripe
                 style="margin-bottom: 20px"
               >
-                <el-table-column label="缺陷种类" prop="class"></el-table-column>
-                <el-table-column label="缺陷总数" prop="count"></el-table-column>
-                <el-table-column label="平均置信度" prop="avg_confidence"></el-table-column>
+                <el-table-column label="Tyoe" prop="class"></el-table-column>
+                <el-table-column label="Total count" prop="count"></el-table-column>
+                <el-table-column label="Average confidence level" prop="avg_confidence"></el-table-column>
               </el-table>
               <el-table
                 :data="feature_list"
@@ -131,23 +148,23 @@
                 border
                 style="width: 750px; text-align: center"
                 v-loading="loading"
-                element-loading-text="数据正在处理中，请耐心等待"
+                element-loading-text="Processing..."
                 element-loading-spinner="el-icon-loading"
               >
 
-                <el-table-column label="类别" width="250px">
+                <el-table-column label="Type" width="250px">
                   <template slot-scope="scope">
                     <span>{{ scope.row.class }}</span>
                   </template>
                 </el-table-column>
 
-                <el-table-column label="置信度" width="250px">
+                <el-table-column label="Confidence level" width="250px">
                   <template slot-scope="scope">
                     <span>{{ scope.row.confidence.toFixed(3) }}</span>
                   </template>
                 </el-table-column>
 
-                <el-table-column label="大小 (宽 x 高)" width="250px">
+                <el-table-column label="Size (W x H)" width="250px">
                   <template slot-scope="scope">
                     <span>{{ scope.row.size.width }} x {{ scope.row.size.height }}</span>
                   </template>
@@ -178,15 +195,84 @@ export default {
       detectionResults: [],
       loading: false,
       showUploadButton: true,
-      waitMessage: '等待上传',
+      waitMessage: 'Wait for uploading',
       percentage: 0,
       dialogTableVisible: false,
+      currentView: 'Home',
+      selectedModel: 'YOLOv11',  // 默认使用 YOLOv11
       headers: {
         Authorization: `Bearer ${localStorage.getItem('token')}`
       }
     }
   },
+  mounted() {
+    this.startSSE()
+  },
+  beforeDestroy() {
+    this.stopSSE()
+  },
   methods: {
+    startSSE() {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        this.$message.error('Not logged in, please log in first')
+        this.$router.push('/login')
+        return
+      }
+      this.eventSource = new EventSource(`${this.server_url}/stream?token=${encodeURIComponent(token)}`)
+
+      this.eventSource.onopen = () => {
+        this.$message.success('Connected to real-time update service')
+      },
+      this.eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        if (data.status === 1 && data.image_url !== this.lastImagePath) {
+          this.lastImagePath = data.image_url
+          this.originalImage = data.image_url
+          this.originalImageList = [data.image_url]
+          this.detectedImage = data.draw_url
+          this.detectedImageList = [data.draw_url]
+          this.feature_list = data.defect_detection && data.defect_detection.detections || []
+          this.loading = false
+          this.showUploadButton = false
+          this.waitMessage = ''
+          this.percentage = 0
+          this.dialogTableVisible = false
+
+          this.$notify({
+            title: 'New image received',
+            message: 'Click the image to view the full size',
+            duration: 0,
+            type: 'success'
+          })
+        }
+      }
+
+      this.eventSource.onerror = async (error) => {
+        try {
+          const response = await fetch(sseUrl)
+          if (response.status === 404) {
+            this.$message.error('SSE endpoint not found (404). Check server configuration.')
+          } else if (response.status === 401) {
+            this.$message.error('Invalid or expired token. Please log in again.')
+            this.$router.push('/login')
+          } else {
+            this.$message.error(`SSE connection failed: ${response.statusText}`)
+          }
+        } catch (fetchError) {
+          this.$message.error('Cannot connect to the server.')
+        }
+        this.eventSource.close()
+        setTimeout(() => this.startSSE(), 5000)
+      }
+    },
+    stopSSE() {
+      if (this.eventSource) {
+        this.eventSource.close()
+        this.eventSource = null
+      }
+    },
+
     goToProfile() {
       this.$router.push('/profile')
     },
@@ -230,6 +316,7 @@ export default {
       
       const formData = new FormData()
       formData.append('file', file, file.name)
+      formData.append('version', this.selectedModel) // 添加模型版本
 
       const timer = setInterval(() => {
         if (this.percentage + 33 < 99) {
@@ -268,19 +355,18 @@ export default {
           this.percentage = 0
           
           this.$notify({
-            title: '预测成功',
-            message: '点击图片可以查看大图',
+            title: 'Success',
+            message: 'Click image for a larger view',
             duration: 0,
             type: 'success'
           })
         })
         .catch(error => {
-          this.$message.error('上传失败，请重试')
-          console.error('Upload error:', error)
+          this.$message.error('Upload failed, please try again')
           this.loading = false
           this.dialogTableVisible = false
           // 上传失败时不清除原始图片预览
-          this.waitMessage = '检测失败，请重试'
+          this.waitMessage = 'Upload failed, please try again'
         })
     },
     calculateStats() {
@@ -310,10 +396,15 @@ export default {
     this.feature_list = [];
     this.stats = [];
     // 其他重置逻辑...
+  },
+
+  handleMenu(index) {
+    this.$router.push(index)
   }
   }
 }
 </script>
+
 
 <style scoped>
 .home-container {
@@ -453,7 +544,22 @@ export default {
 .el-table-column {
   width: 33.33%;
 }
+
+.model-select-wrapper {
+  margin-left: 300px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.model-select-label {
+  font-size: 20px;
+  font-weight: bold;
+  color: #333;
+}
 </style> 
+
 
 <style>
 body {
