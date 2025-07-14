@@ -34,7 +34,11 @@
         <div class="model-select-wrapper">
           <label class="model-select-label">Model Selection:</label>
           <el-select v-model="selectedModel" placeholder="Select Model">
+<<<<<<< HEAD
             <el-option label="FASTSAM" value="FASTSAM"></el-option>
+=======
+            <el-option label="YOLOv8" value="YOLOv8"></el-option>
+>>>>>>> 56a3681b5e259475872eb42ed8a074c9bff9e2e1
             <el-option label="YOLOv11" value="YOLOv11"></el-option>
           </el-select>
         </div>
