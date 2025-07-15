@@ -27,8 +27,8 @@ def login(username: str, password: str) -> str:
     else:
         raise Exception(f"Login request failed with status {response.status_code}")
 
-def upload_image(token: str, image_path: str) -> dict:
-    """Upload an image to the server using the provided token."""
+def upload_image(token: str, image_path: str, version: str) -> dict:
+    """Upload an image to the server using the provided token and version"""
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"Image file not found: {image_path}")
     
@@ -44,20 +44,30 @@ def upload_image(token: str, image_path: str) -> dict:
     
     with open(image_path, 'rb') as image_file:
         files = {'file': (os.path.basename(image_path), image_file, f'image/{file_ext}')}
-        response = requests.post(UPLOAD_ENDPOINT, headers=headers, files=files)
+        data = {
+            'version': str(version)
+        }
+        response = requests.post(UPLOAD_ENDPOINT, headers=headers, files=files, data=data)
     
     if response.status_code == 200:
         return response.json()
     else:
         raise Exception(f"Image upload failed with status {response.status_code}: {response.text}")
 
+def get_selected_model_version():
+    try:
+        with open("selected_model.txt", "r") as f:
+            return f.read().strip()
+    except:
+        return "YOLOv11"
+
 def main():
     # Configuration - replace with your actual credentials and image path
     USERNAME = "123"  # Replace with actual username
     PASSWORD = "123456"  # Replace with actual password
     IMAGE_PATH = r"C:\Users\Caiijo\Desktop\samples-aug\2cm_1_original.jpg" # Replace with actual image path
-    
     try:
+        version = get_selected_model_version()
         # Step 1: Login to get token
         print("Attempting to login...")
         token = login(USERNAME, PASSWORD)
@@ -65,7 +75,7 @@ def main():
         
         # Step 2: Upload image
         print(f"Uploading image: {IMAGE_PATH}")
-        result = upload_image(token, IMAGE_PATH)
+        result = upload_image(token, IMAGE_PATH, version)
         
         # Print results
         if result.get("status") == 1:

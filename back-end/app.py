@@ -8,21 +8,15 @@ from queue import Queue
 from threading import Lock
 from processor.AIDetector_pytorch import Detector
 from models.user import User
-<<<<<<< HEAD
 from processor.fastsam_detector import FastSamDetector
-=======
->>>>>>> 56a3681b5e259475872eb42ed8a074c9bff9e2e1
 from utils.auth import generate_token, token_required, verify_token
 import core.main
 import cv2
 # from processor.yolov8_detector import YOLOv8Detector
 from processor.yolov11_detector import YOLOv11Detector
-<<<<<<< HEAD
 from models.record import Record
 import time
 
-=======
->>>>>>> 56a3681b5e259475872eb42ed8a074c9bff9e2e1
 
 UPLOAD_FOLDER = r'./uploads'
 
@@ -44,13 +38,9 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(seconds=1)
 # 初始化缺陷检测器
 # defect_detector = DefectDetector('defect_detection/defect_model/defect_detector/weights/best.pt')
 # defect_detector = Detector()
-<<<<<<< HEAD
 yolov11_detector = YOLOv11Detector('weights/best.pt')
 fastsam_detector = FastSamDetector('FastSAM-x.pt')
 
-=======
-defect_detector = YOLOv11Detector('weights/best.pt')
->>>>>>> 56a3681b5e259475872eb42ed8a074c9bff9e2e1
 # 添加header解决跨域
 @app.after_request
 def after_request(response):
@@ -156,8 +146,14 @@ def login():
 @app.route('/upload', methods=['GET', 'POST'])
 @token_required
 def upload_file(current_user_id):
+    try:
+        with open("selected_model.txt", "r") as f:
+            model_version = f.read().strip()
+    except FileNotFoundError:
+        model_version = "YOLOv11"
+    print("Model version received from form:", model_version)
+    print("All form keys:", list(request.form.keys()))
     file = request.files['file']
-    model_version = request.form.get('version', 'YOLOv11')
     print(datetime.datetime.now(), file.filename, "using model version:", model_version)
     if file and allowed_file(file.filename):
         filename = file.filename
@@ -189,7 +185,6 @@ def upload_file(current_user_id):
             # cv2.waitKey(0)
             # cv2.destroyAllWindows()
 
-<<<<<<< HEAD
             record_model = Record()
             total_defects = len(detections)
             defect_types = list(set(d['class'] for d in detections))
@@ -205,8 +200,6 @@ def upload_file(current_user_id):
                 model_version
             )
 
-=======
->>>>>>> 56a3681b5e259475872eb42ed8a074c9bff9e2e1
             response = {
                 'status': 1,
                 'image_url': original_url,
@@ -334,6 +327,19 @@ def delete_history_record(current_user_id):
             return jsonify({'status': 0, 'message': 'Record not found or not authorized'})
     except Exception as e:
         return jsonify({'status': 0, 'message': str(e)}), 500
+
+@app.route("/api/set_model_version", methods=["POST"])
+def set_model_version():
+    version = request.json.get("version")
+    print("Received version from frontend:", version)
+    if not version:
+        return {"status": 0, "message": "Missing model version"}, 400
+
+    with open("selected_model.txt", "w") as f:
+        f.write(version)
+
+    print("Model version saved to selected_model.txt")
+    return {"status": 1, "message": "Model version saved"}
 
 if __name__ == '__main__':
     # with app.app_context():

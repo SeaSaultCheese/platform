@@ -17,6 +17,8 @@ class Record:
             original_image_url TEXT,
             detected_image_url TEXT,
             detection_data JSON,
+            total_defects INT,
+            defect_types TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             model_version VARCHAR(10),
             FOREIGN KEY (user_id) REFERENCES users(id)

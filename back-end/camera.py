@@ -66,7 +66,7 @@ def login(username: str, password: str) -> str:
     else:
         raise Exception(f"Login request failed with status {response.status_code}")
 
-def upload_image(token: str, image_path: str) -> dict:
+def upload_image(token: str, image_path: str, version: str) -> dict:
     """Upload an image to the server using the provided token."""
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"Image file not found: {image_path}")
@@ -83,12 +83,22 @@ def upload_image(token: str, image_path: str) -> dict:
     
     with open(image_path, 'rb') as image_file:
         files = {'file': (os.path.basename(image_path), image_file, f'image/{file_ext}')}
-        response = requests.post(UPLOAD_ENDPOINT, headers=headers, files=files)
+        data = {
+            'version': version
+        }
+        response = requests.post(UPLOAD_ENDPOINT, headers=headers, files=files, data=data)
     
     if response.status_code == 200:
         return response.json()
     else:
         raise Exception(f"Image upload failed with status {response.status_code}: {response.text}")
+
+def get_selected_model_version():
+    try:
+        with open("selected_model.txt", "r") as f:
+            return f.read().strip()
+    except:
+        return "YOLOv11"
 
 if __name__ == "__main__":
 
@@ -99,6 +109,7 @@ if __name__ == "__main__":
     ser = serial.Serial('COM7', 9600, timeout=0.1)  # Adjust COM port as needed
     time.sleep(2)
 
+
     # Attempt to read a line from the serial port
     while True:
         data = ser.readline().decode('utf-8', errors='ignore').strip()
@@ -108,7 +119,8 @@ if __name__ == "__main__":
             print("Trigger received, capturing image...")
 
             filename = capture_webcam_image()
-   
+            version = get_selected_model_version()
+
             try:
                 # Step 1: Login to get token
                 print("Attempting to login...")
@@ -116,8 +128,8 @@ if __name__ == "__main__":
                 print("Login successful!")
                 
                 # Step 2: Upload image
-                print(f"Uploading image: {filename}")
-                result = upload_image(token, filename)
+                print(f"Uploading image: {filename} with model version: {version}")
+                result = upload_image(token, filename, version)
                 
                 # Print results
                 if result.get("status") == 1:

@@ -34,11 +34,7 @@
         <div class="model-select-wrapper">
           <label class="model-select-label">Model Selection:</label>
           <el-select v-model="selectedModel" placeholder="Select Model">
-<<<<<<< HEAD
             <el-option label="FASTSAM" value="FASTSAM"></el-option>
-=======
-            <el-option label="YOLOv8" value="YOLOv8"></el-option>
->>>>>>> 56a3681b5e259475872eb42ed8a074c9bff9e2e1
             <el-option label="YOLOv11" value="YOLOv11"></el-option>
           </el-select>
         </div>
@@ -66,7 +62,7 @@
                           class="upload-button"
                           @click="triggerUpload"
                         >
-                          Upload image
+                          Upload image</el-button>
                           <input
                             ref="upload"
                             style="display: none"
@@ -74,7 +70,7 @@
                             type="file"
                             @change="handleUpload"
                           />
-                        </el-button>
+                        
                       </div>
                     </div>
                   </el-image>
@@ -215,7 +211,32 @@ export default {
   beforeDestroy() {
     this.stopSSE()
   },
+  watch: {
+    selectedModel(newVal) {
+      this.setModelVersion(newVal)
+    }
+  },
   methods: {
+    setModelVersion(version) {
+    fetch("http://127.0.0.1:5003/api/set_model_version", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ version })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === 1) {
+        this.$message.success("Model version set successfully.");
+      } else {
+        this.$message.error("Failed to set model version: " + data.message);
+      }
+    })
+    .catch(err => {
+      this.$message.error("Error setting model version: " + err.message);
+    });
+    },
     startSSE() {
       const token = localStorage.getItem('token')
       if (!token) {
@@ -321,7 +342,7 @@ export default {
       const formData = new FormData()
       formData.append('file', file, file.name)
       formData.append('version', this.selectedModel) // 添加模型版本
-
+      console.log("使用的模型版本是：", this.selectedModel)
       const timer = setInterval(() => {
         if (this.percentage + 33 < 99) {
           this.percentage += 33
