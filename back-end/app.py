@@ -41,6 +41,10 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(seconds=1)
 yolov11_detector = YOLOv11Detector('weights/best.pt')
 fastsam_detector = FastSamDetector('FastSAM-x.pt')
 
+
+# defect_detector = YOLOv11Detector('weights/best.pt')
+
+
 # 添加header解决跨域
 @app.after_request
 def after_request(response):
