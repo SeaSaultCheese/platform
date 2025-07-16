@@ -19,7 +19,7 @@ export default {
   name: "Header",
   data() {
     return {
-      msg: "YOLOv8 detection system",
+      msg: "Defect detection system",
       activeIndex: "1",
     };
   },

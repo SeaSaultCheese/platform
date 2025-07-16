@@ -93,7 +93,7 @@
                   </el-image>
                 </div>
                 <div class="image-info">
-                  <span>Dectecion Result</span>
+                  <span>Detection Result</span>
                 </div>
               </div>
               </div>
