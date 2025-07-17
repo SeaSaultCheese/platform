@@ -152,10 +152,14 @@ def upload_file(current_user_id):
     print(datetime.datetime.now(), file.filename, "using model version:", model_version)
     if file and allowed_file(file.filename):
         filename = file.filename
+        if not os.path.exists(app.config['UPLOAD_FOLDER']):
+            os.makedirs(app.config['UPLOAD_FOLDER'])
         src_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(src_path)
 
         # 保存到临时检测路径
+        if not os.path.exists('./tmp/ct'):
+            os.makedirs('./tmp/ct')
         tmp_ct_path = os.path.join('./tmp/ct', filename)
         shutil.copy(src_path, tmp_ct_path)
 
@@ -174,6 +178,8 @@ def upload_file(current_user_id):
             else:
                 detections, annotated_image = yolov11_detector.process_image(img)
             # 保存带注释的图像
+            if not os.path.exists('./tmp/draw'):
+                os.makedirs('./tmp/draw')
             draw_path = os.path.join('./tmp/draw', filename)
             cv2.imwrite(draw_path, annotated_image)
             # cv2.imshow("Debug Annotated", annotated_image)
