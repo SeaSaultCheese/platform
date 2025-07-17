@@ -308,7 +308,7 @@ if __name__ == "__main__":
     detector = FastSamDetector(model_path)
 
     # Load an example image
-    image_path = "example_image.jpg"
+    image_path = "C:\\Users\\charm\\OneDrive - The University of Hong Kong - Connect\\FYP\\scripts\\capture_20250712_011757.jpg"
     image = cv2.imread(image_path)
 
     # Process the image

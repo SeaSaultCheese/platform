@@ -6,13 +6,10 @@ from datetime import timedelta
 from flask import *
 from queue import Queue
 from threading import Lock
-from processor.AIDetector_pytorch import Detector
 from models.user import User
 from processor.fastsam_detector import FastSamDetector
 from utils.auth import generate_token, token_required, verify_token
-import core.main
 import cv2
-# from processor.yolov8_detector import YOLOv8Detector
 from processor.yolov11_detector import YOLOv11Detector
 from models.record import Record
 import time
@@ -36,14 +33,8 @@ werkzeug_logger.setLevel(rel_log.ERROR)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(seconds=1)
 
 # 初始化缺陷检测器
-# defect_detector = DefectDetector('defect_detection/defect_model/defect_detector/weights/best.pt')
-# defect_detector = Detector()
 yolov11_detector = YOLOv11Detector('weights/best.pt')
 fastsam_detector = FastSamDetector('FastSAM-x.pt')
-
-
-# defect_detector = YOLOv11Detector('weights/best.pt')
-
 
 # 添加header解决跨域
 @app.after_request
